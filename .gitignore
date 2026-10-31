@@ -1,24 +1,48 @@
-# Logs
-logs
+# ==============================================================================
+# Equi-Extin Frontend .gitignore
+# Strictly excludes environment files, secrets, IDEs, and build caches
+# ==============================================================================
+
+# --- Environment Variables & Local Secrets ---
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!.env.example
+
+# --- Dependencies & Build Outputs ---
+node_modules/
+dist/
+dist-ssr/
+
+# --- IDE & Editor Files ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs, Cookies & Ephemeral Tracking ---
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
+cookies.txt
+[Qq]uestion*
+QUESTION*
+question/
 *.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
