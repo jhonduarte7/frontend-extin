@@ -152,6 +152,10 @@ function MarkdownView({ content }) {
 export default function RagAssistantPage() {
   const { t } = useTranslation();
   const location = useLocation();
+
+  const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
+  const isRemoteProd = import.meta.env.PROD || rawApiUrl.includes('venefast.com') || !rawApiUrl.includes('localhost');
+
   const [messages, setMessages] = useState([]);
   const [inputPrompt, setInputPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -257,20 +261,25 @@ export default function RagAssistantPage() {
       });
     };
 
-    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
     const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
     const baseUrl = cleanApiUrl.endsWith('/api') ? cleanApiUrl : `${cleanApiUrl}/api`;
     const targetEndpoint = `${baseUrl}/admin/chat/mcp`;
 
     try {
+      const authToken = localStorage.getItem('auth_token');
+      const fetchHeaders = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream, text/plain',
+        'X-Chat-Id': activeChatId,
+      };
+      if (authToken) {
+        fetchHeaders['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(targetEndpoint, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream, text/plain',
-          'X-Chat-Id': activeChatId,
-        },
+        headers: fetchHeaders,
         body: JSON.stringify({
           prompt: promptToSend,
           chat_id: activeChatId,
@@ -438,7 +447,7 @@ He recibido la instrucción para analizar el documento **${docContext?.fileName 
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           content: `### ¡Bienvenido al Asistente Técnico y Normativo de Equi-Extin!
 
-Soy su copiloto con inteligencia artificial conectado a **Spring AI (Ollama Llama 3.1)** y a la base de conocimiento vectorial **pgvector**.
+Soy su copiloto con inteligencia artificial conectado a **Spring AI (${isRemoteProd ? 'OpenAI gpt-4o-mini Remoto' : 'Ollama Local'})** y a la base de conocimiento vectorial **pgvector**.
 
 Puedo asistirle en:
 - **Normativas Contra Incendios:** Consultas de la **NFPA 10** y normas **COVENIN** (clasificación de riesgos, selección de agentes, tablas de ubicación).
@@ -506,10 +515,14 @@ El contexto conversacional anterior ha sido reiniciado. ¿En qué puedo orientar
                 </h1>
                 <Badge
                   variant="outline"
-                  className="hidden sm:inline-flex bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/50 text-[#E53935] text-[10px] font-bold py-0.5"
+                  className={`hidden sm:inline-flex text-[10px] font-bold py-0.5 ${
+                    isRemoteProd
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400'
+                  }`}
                 >
                   <Cpu className="w-3 h-3 mr-1" />
-                  Llama 3.1 + pgvector
+                  {isRemoteProd ? 'OpenAI (gpt-4o-mini) + pgvector' : 'Ollama (llama3.2) + pgvector'}
                 </Badge>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">

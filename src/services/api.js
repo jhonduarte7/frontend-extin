@@ -19,10 +19,13 @@ const api = axios.create({
   timeout: 15000,
 });
 
-// Request interceptor
+// Request interceptor: attach bearer token if available while preserving HttpOnly cookie flow
 api.interceptors.request.use(
   (config) => {
-    // HttpOnly cookies are automatically attached by the browser
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => Promise.reject(error)

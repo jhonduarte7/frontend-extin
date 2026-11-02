@@ -66,6 +66,11 @@ export function AuthProvider({ children }) {
         password,
       });
 
+      const token = res.headers['x-auth-token'] || res.headers['authorization'];
+      if (token) {
+        localStorage.setItem('auth_token', token.replace(/^Bearer\s+/i, ''));
+      }
+
       const userData = {
         username: res.data?.username || username,
         role: res.data?.role || 'ADMIN',
@@ -101,6 +106,7 @@ export function AuthProvider({ children }) {
     } finally {
       setUser(null);
       localStorage.removeItem(AUTH_STORAGE_KEY);
+      localStorage.removeItem('auth_token');
     }
   };
 
