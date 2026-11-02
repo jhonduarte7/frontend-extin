@@ -257,11 +257,13 @@ export default function RagAssistantPage() {
       });
     };
 
+    const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
+    const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
+    const baseUrl = cleanApiUrl.endsWith('/api') ? cleanApiUrl : `${cleanApiUrl}/api`;
+    const targetEndpoint = `${baseUrl}/admin/chat/mcp`;
+
     try {
-      const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
-      const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
-      const baseUrl = cleanApiUrl.endsWith('/api') ? cleanApiUrl : `${cleanApiUrl}/api`;
-      const response = await fetch(`${baseUrl}/admin/chat/mcp`, {
+      const response = await fetch(targetEndpoint, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -364,9 +366,8 @@ El documento técnico consultado ha sido indexado en la base de datos vectorial 
           toolsFallback = ['Vector Store (pgvector)', 'DocumentTools.searchInManuals'];
         } else {
           errorMessage = `### Nota del Sistema:
-El servicio Spring AI / Ollama en \`http://localhost:8090/api/admin/chat/mcp\` presentó una interrupción (${err.message}).
-- Verifique que la instancia local de Ollama esté ejecutándose (\`ollama serve\`).
-- Los manuales normativos pueden administrarse y vectorizarse en el módulo [Gestión de Documentos PDF](/admin/documents).`;
+No se pudo conectar con el servicio de IA en \`${targetEndpoint}\` (${err.message}).
+- Verifique que su sesión administrativa esté activa y que la conexión de red sea estable.`;
         }
       }
 
