@@ -348,6 +348,39 @@ export default function RagAssistantPage() {
     } catch (err) {
       console.error('Error invoking MCP Chatbot API via stream:', err);
 
+      // If tokens were already streamed and accumulated, do not overwrite the response with an error
+      if (accumulatedText.trim().length > 0) {
+        return;
+      }
+
+      // If streaming aborted before any content was received, attempt synchronous fallback
+      try {
+        const syncResponse = await api.post(
+          '/admin/chat/mcp',
+          {
+            prompt: promptToSend,
+            chat_id: activeChatId,
+          },
+          {
+            headers: {
+              'X-Chat-Id': activeChatId,
+            },
+          }
+        );
+
+        const syncContent =
+          syncResponse.data?.reply ||
+          syncResponse.data?.content ||
+          (typeof syncResponse.data === 'string' ? syncResponse.data : '');
+
+        if (syncContent) {
+          appendStreamChunk(syncContent);
+          return;
+        }
+      } catch (syncErr) {
+        console.warn('Sync fallback also failed:', syncErr);
+      }
+
       let errorMessage = 'No se pudo conectar con el modelo local de IA.';
       let toolsFallback = ['Modo Contingencia'];
 
