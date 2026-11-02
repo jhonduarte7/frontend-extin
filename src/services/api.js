@@ -5,8 +5,13 @@ import axios from 'axios';
  * Strictly enables withCredentials: true to send and receive HttpOnly JWT cookies (jwt_token).
  * Standardized to handle backend ErrorResponseDto structures.
  */
+// Resolve and normalize base URL ensuring /api suffix for backend compatibility
+const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
+const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
+const normalizedBaseUrl = cleanApiUrl.endsWith('/api') ? cleanApiUrl : `${cleanApiUrl}/api`;
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8090/api',
+  baseURL: normalizedBaseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

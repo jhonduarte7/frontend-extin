@@ -258,7 +258,9 @@ export default function RagAssistantPage() {
     };
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
+      const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8090/api';
+      const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
+      const baseUrl = cleanApiUrl.endsWith('/api') ? cleanApiUrl : `${cleanApiUrl}/api`;
       const response = await fetch(`${baseUrl}/admin/chat/mcp`, {
         method: 'POST',
         credentials: 'include',
