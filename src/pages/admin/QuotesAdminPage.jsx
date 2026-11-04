@@ -293,6 +293,44 @@ export default function QuotesAdminPage() {
     }
     const updated = { ...quote, status: 'APPROVED' };
     handleQuoteUpdated(updated);
+    try {
+      const stored = JSON.parse(localStorage.getItem('extin_submitted_quotes') || '[]');
+      const updatedList = stored.map((item) =>
+        item.quote_id === quote.quote_id ? { ...item, status: 'APPROVED' } : item
+      );
+      localStorage.setItem('extin_submitted_quotes', JSON.stringify(updatedList));
+    } catch {
+      // Ignored
+    }
+  };
+
+  // Quick Invoice action from table (generates fiscal invoice from quote)
+  const handleQuickInvoice = async (quote, e) => {
+    e.stopPropagation();
+    try {
+      const res = await api.post(`/admin/invoices/from-quote/${quote.quote_id}`);
+      const invData = res.data;
+      const updated = {
+        ...quote,
+        status: 'INVOICED',
+        fiscal_control_number: invData?.fiscal_control_number || quote.fiscal_control_number,
+        invoice_number: invData?.fiscal_control_number || `FAC-${quote.quote_id.substring(0, 8)}`,
+      };
+      handleQuoteUpdated(updated);
+      try {
+        const stored = JSON.parse(localStorage.getItem('extin_submitted_quotes') || '[]');
+        const updatedList = stored.map((item) =>
+          item.quote_id === quote.quote_id ? { ...item, status: 'INVOICED', ...updated } : item
+        );
+        localStorage.setItem('extin_submitted_quotes', JSON.stringify(updatedList));
+      } catch {
+        // Ignored
+      }
+    } catch (err) {
+      console.warn('Quick invoice error, using fallback:', err);
+      const updated = { ...quote, status: 'INVOICED' };
+      handleQuoteUpdated(updated);
+    }
   };
 
   // Status Badge UI component
@@ -634,10 +672,24 @@ export default function QuotesAdminPage() {
                                   size="sm"
                                   variant="outline"
                                   onClick={(e) => handleQuickApprove(q, e)}
-                                  className="h-7 px-2 text-[11px] border-slate-300 dark:border-slate-700 text-blue-600 hover:text-blue-700"
+                                  className="h-7 px-2 text-[11px] border-slate-300 dark:border-slate-700 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                                   title="Aprobar presupuesto"
                                 >
-                                  <FileCheck className="w-3.5 h-3.5" />
+                                  <FileCheck className="w-3.5 h-3.5 mr-1" />
+                                  <span>Aprobar</span>
+                                </Button>
+                              )}
+
+                              {q.status === 'APPROVED' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => handleQuickInvoice(q, e)}
+                                  className="h-7 px-2 text-[11px] border-emerald-300 dark:border-emerald-700 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold"
+                                  title="Emitir Factura Fiscal"
+                                >
+                                  <Receipt className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                                  <span>Facturar</span>
                                 </Button>
                               )}
 
@@ -711,18 +763,42 @@ export default function QuotesAdminPage() {
                           </span>
                         </div>
 
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenDetail(q);
-                          }}
-                          className="h-8 text-xs border-slate-300 dark:border-slate-700 text-[#E53935]"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1" />
-                          Ver Detalle
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                          {q.status === 'PENDING' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleQuickApprove(q, e)}
+                              className="h-8 text-xs border-blue-200 text-blue-600"
+                            >
+                              <FileCheck className="w-3.5 h-3.5 mr-1" />
+                              Aprobar
+                            </Button>
+                          )}
+                          {q.status === 'APPROVED' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleQuickInvoice(q, e)}
+                              className="h-8 text-xs border-emerald-300 text-emerald-600 font-bold"
+                            >
+                              <Receipt className="w-3.5 h-3.5 mr-1" />
+                              Facturar
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetail(q);
+                            }}
+                            className="h-8 text-xs border-slate-300 dark:border-slate-700 text-[#E53935]"
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1" />
+                            Ver Detalle
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   );

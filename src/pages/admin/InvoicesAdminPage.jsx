@@ -253,7 +253,7 @@ export default function InvoicesAdminPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 5;
 
-  // Load invoices by merging backend /invoices, backend /quotes (status=INVOICED), localStorage, and seed records
+  // Load invoices by merging backend /invoices, backend /quotes (including APPROVED & INVOICED), localStorage, and seed records
   const fetchInvoices = async () => {
     try {
       setLoading(true);
@@ -267,61 +267,103 @@ export default function InvoicesAdminPage() {
         console.warn('GET /admin/invoices unavailable, trying /admin/quotes:', err);
       }
 
-      // Attempt 2: Fetch quotes from backend and filter for INVOICED
-      let backendQuotesInvoiced = [];
+      // Attempt 2: Fetch quotes from backend to enrich invoices with customer data AND include APPROVED & INVOICED quotes
+      let allBackendQuotes = [];
       try {
         const quoteRes = await api.get('/admin/quotes?page=0&size=50');
-        const allQuotes = quoteRes.data?.content || [];
-        backendQuotesInvoiced = allQuotes.filter((q) => q.status === 'INVOICED');
-      } catch {
-        // Ignored
+        allBackendQuotes = quoteRes.data?.content || [];
+      } catch (err) {
+        console.warn('GET /admin/quotes error:', err);
       }
 
-      // Attempt 3: Retrieve local quotes from localStorage with INVOICED status
-      let localInvoiced = [];
+      const quotesMap = new Map(allBackendQuotes.map((q) => [q.quote_id, q]));
+
+      // Standardize backend invoices enriched with quote customer info
+      const mappedInvoices = backendInvoices.map((inv) => {
+        const matchingQuote = quotesMap.get(inv.quote_id);
+        return {
+          quote_id: inv.quote_id || inv.invoice_id,
+          invoice_id: inv.invoice_id,
+          invoice_number: inv.fiscal_control_number || matchingQuote?.fiscal_control_number || `FAC-${(inv.invoice_id || inv.quote_id || '').substring(0, 8)}`,
+          fiscal_control_number: inv.fiscal_control_number || matchingQuote?.fiscal_control_number || '00-004180',
+          customer_name: inv.customer_name || matchingQuote?.customer_name || 'Cliente Corporativo',
+          customer_tax_id: inv.customer_tax_id || matchingQuote?.customer_tax_id || 'J-00000000-0',
+          customer_phone: inv.customer_phone || matchingQuote?.customer_phone || '+58 212-0000000',
+          customer_email: inv.customer_email || matchingQuote?.customer_email || 'facturacion@empresa.com',
+          customer_city: matchingQuote?.customer_city || 'Caracas',
+          customer_address: matchingQuote?.customer_address || 'Dirección fiscal',
+          issue_date: inv.issue_date || inv.rate_date || matchingQuote?.issue_date || new Date().toISOString(),
+          status: inv.status || 'INVOICED',
+          target_currency: inv.target_currency || matchingQuote?.target_currency || 'VES',
+          exchange_rate: inv.exchange_rate ? Number(inv.exchange_rate) : (matchingQuote?.exchange_rate || 36.50),
+          subtotal: inv.subtotal ? Number(inv.subtotal) : (matchingQuote?.subtotal || 0),
+          applies_iva: inv.applies_iva !== undefined ? inv.applies_iva : (matchingQuote?.applies_iva ?? true),
+          tax_rate: inv.tax_rate ? Number(inv.tax_rate) : (matchingQuote?.tax_rate || 16.0),
+          tax_amount: inv.tax_amount ? Number(inv.tax_amount) : (matchingQuote?.tax_amount || 0),
+          total_amount_usd: inv.total_amount_usd ? Number(inv.total_amount_usd) : (matchingQuote?.total_amount_usd || 0),
+          total_amount_local: inv.total_amount_local ? Number(inv.total_amount_local) : (matchingQuote?.total_amount_local || 0),
+          payment_reference: inv.payment_reference || (inv.status === 'PAID' ? 'PAGADA' : 'EMITIDA-SENIAT'),
+          items: matchingQuote?.items || [],
+        };
+      });
+
+      // Include all quotes that are APPROVED or INVOICED
+      const eligibleQuotes = allBackendQuotes
+        .filter((q) => q.status === 'INVOICED' || q.status === 'APPROVED')
+        .map((q) => ({
+          quote_id: q.quote_id,
+          invoice_number: q.fiscal_control_number || (q.status === 'APPROVED' ? `COT-${q.quote_id.substring(0, 8)}` : `FAC-${q.quote_id.substring(0, 8)}`),
+          fiscal_control_number: q.fiscal_control_number || (q.status === 'APPROVED' ? 'POR-EMITIR' : '00-004180'),
+          customer_name: q.customer_name || 'Cliente Corporativo',
+          customer_tax_id: q.customer_tax_id || 'J-00000000-0',
+          customer_phone: q.customer_phone || '+58 212-0000000',
+          customer_email: q.customer_email || 'facturacion@empresa.com',
+          customer_city: q.customer_city || 'Caracas',
+          customer_address: q.customer_address || 'Dirección fiscal',
+          issue_date: q.issue_date || new Date().toISOString(),
+          status: q.status,
+          target_currency: q.target_currency || 'VES',
+          exchange_rate: q.exchange_rate ? Number(q.exchange_rate) : 36.50,
+          subtotal: q.subtotal ? Number(q.subtotal) : 0,
+          applies_iva: q.applies_iva !== undefined ? q.applies_iva : true,
+          tax_rate: q.tax_rate ? Number(q.tax_rate) : 16.0,
+          tax_amount: q.tax_amount ? Number(q.tax_amount) : 0,
+          total_amount_usd: q.total_amount_usd ? Number(q.total_amount_usd) : 0,
+          total_amount_local: q.total_amount_local ? Number(q.total_amount_local) : 0,
+          payment_reference: q.payment_reference || (q.status === 'APPROVED' ? 'POR-EMITIR' : 'REF-SISTEMA'),
+          items: q.items || [],
+        }));
+
+      // Attempt 3: Retrieve local quotes from localStorage with INVOICED or APPROVED status
+      let localQuotes = [];
       try {
         const storedQuotes = JSON.parse(localStorage.getItem('extin_submitted_quotes') || '[]');
-        localInvoiced = storedQuotes.filter((q) => q.status === 'INVOICED');
+        localQuotes = storedQuotes.filter((q) => q.status === 'INVOICED' || q.status === 'APPROVED');
       } catch {
         // Ignored
       }
 
       // Merge and standardize invoice records
       const combined = [
-        ...backendInvoices.map((inv) => ({
-          quote_id: inv.quote_id || inv.invoice_id,
-          invoice_number: inv.fiscal_control_number || `FAC-${inv.invoice_id?.substring(0, 8)}`,
-          fiscal_control_number: inv.fiscal_control_number || '00-004180',
-          customer_name: inv.customer_name || 'Cliente Corporativo',
-          customer_tax_id: inv.customer_tax_id || 'J-00000000-0',
-          customer_phone: '+58 212-0000000',
-          customer_email: 'facturacion@empresa.com',
-          issue_date: inv.rate_date || inv.issue_date || new Date().toISOString(),
-          status: 'INVOICED',
-          target_currency: inv.target_currency || 'VES',
-          exchange_rate: inv.exchange_rate ? Number(inv.exchange_rate) : 36.50,
-          subtotal: inv.subtotal ? Number(inv.subtotal) : Number(inv.total_amount_usd || 0),
-          applies_iva: inv.applies_iva !== undefined ? inv.applies_iva : true,
-          tax_rate: inv.tax_rate ? Number(inv.tax_rate) : 16.0,
-          tax_amount: inv.tax_amount ? Number(inv.tax_amount) : 0,
-          total_amount_usd: inv.total_amount_usd ? Number(inv.total_amount_usd) : 0,
-          total_amount_local: inv.total_amount_local ? Number(inv.total_amount_local) : 0,
-          payment_reference: inv.payment_reference || 'REF-SISTEMA',
-          items: [],
-        })),
-        ...backendQuotesInvoiced,
-        ...localInvoiced,
+        ...mappedInvoices,
+        ...eligibleQuotes,
+        ...localQuotes,
       ];
 
       // If empty, populate with realistic SEED_INVOICES
-      const finalList = combined.length > 0 ? [...combined, ...SEED_INVOICES] : SEED_INVOICES;
+      const finalList = combined.length > 0 ? combined : SEED_INVOICES;
 
-      // Deduplicate by invoice_number or quote_id
+      // Deduplicate by quote_id or invoice_number, preferring emitted invoices with real fiscal numbers
       const uniqueMap = new Map();
       finalList.forEach((inv) => {
-        const key = inv.invoice_number || inv.quote_id;
+        const key = inv.quote_id || inv.invoice_number;
         if (!uniqueMap.has(key)) {
           uniqueMap.set(key, inv);
+        } else {
+          const prev = uniqueMap.get(key);
+          if (inv.status === 'PAID' || inv.status === 'ISSUED' || (inv.fiscal_control_number && inv.fiscal_control_number.startsWith('SENIAT'))) {
+            uniqueMap.set(key, { ...prev, ...inv });
+          }
         }
       });
 
@@ -334,6 +376,30 @@ export default function InvoicesAdminPage() {
     }
   };
 
+  // Direct 1-click fiscal invoice emission from table
+  const handleEmitInvoice = async (inv, e) => {
+    if (e) e.stopPropagation();
+    try {
+      setLoading(true);
+      await api.post(`/admin/invoices/from-quote/${inv.quote_id}`);
+      try {
+        const stored = JSON.parse(localStorage.getItem('extin_submitted_quotes') || '[]');
+        const updatedList = stored.map((item) =>
+          item.quote_id === inv.quote_id ? { ...item, status: 'INVOICED' } : item
+        );
+        localStorage.setItem('extin_submitted_quotes', JSON.stringify(updatedList));
+      } catch {
+        // Ignored
+      }
+      await fetchInvoices();
+    } catch (err) {
+      console.warn('Error emitting invoice from quote:', err);
+      await fetchInvoices();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchInvoices();
   }, []);
@@ -341,7 +407,9 @@ export default function InvoicesAdminPage() {
   // Filtered invoices
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
-      // Modality filter
+      // Modality and status filters
+      if (modalityFilter === 'EMITTED' && inv.status === 'APPROVED') return false;
+      if (modalityFilter === 'APPROVED' && inv.status !== 'APPROVED') return false;
       if (modalityFilter === 'CON_IVA' && !inv.applies_iva) return false;
       if (modalityFilter === 'SIN_IVA' && inv.applies_iva) return false;
 
@@ -374,6 +442,7 @@ export default function InvoicesAdminPage() {
   // Executive KPIs
   const kpis = useMemo(() => {
     const totalCount = invoices.length;
+    const approvedCount = invoices.filter((i) => i.status === 'APPROVED').length;
     const conIvaCount = invoices.filter((i) => i.applies_iva).length;
     const sinIvaCount = invoices.filter((i) => !i.applies_iva).length;
     const totalVolumeUsd = invoices.reduce((acc, i) => acc + (Number(i.total_amount_usd) || 0), 0);
@@ -384,6 +453,7 @@ export default function InvoicesAdminPage() {
 
     return {
       totalCount,
+      approvedCount,
       conIvaCount,
       sinIvaCount,
       totalVolumeUsd,
@@ -599,7 +669,7 @@ export default function InvoicesAdminPage() {
             />
           </div>
 
-          {/* Modality Filter Pills */}
+          {/* Modality & Lifecycle Filter Pills */}
           <div className="flex items-center gap-1.5 self-start md:self-auto overflow-x-auto no-scrollbar">
             <button
               type="button"
@@ -612,6 +682,30 @@ export default function InvoicesAdminPage() {
             >
               {t('admin.invoices.filterAll', 'Todas')} ({invoices.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setModalityFilter('EMITTED')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                modalityFilter === 'EMITTED'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'text-slate-500 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
+              }`}
+            >
+              Facturadas ({invoices.length - kpis.approvedCount})
+            </button>
+            {kpis.approvedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setModalityFilter('APPROVED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  modalityFilter === 'APPROVED'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-blue-600 bg-blue-50 dark:bg-blue-950/30'
+                }`}
+              >
+                Aprobadas por Emitir ({kpis.approvedCount})
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setModalityFilter('CON_IVA')}
@@ -684,12 +778,17 @@ export default function InvoicesAdminPage() {
                     >
                       {/* Nro. Factura & Control Fiscal */}
                       <td className="px-5 py-3.5">
-                        <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs">
-                          {inv.invoice_number || inv.quote_id}
+                        <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5">
+                          <span>{inv.invoice_number || inv.quote_id}</span>
+                          {inv.status === 'APPROVED' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300">
+                              POR EMITIR
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                           <ShieldCheck className="w-3 h-3 text-[#E53935]" />
-                          <span>Control: {inv.fiscal_control_number || '00-004180'}</span>
+                          <span>Control: {inv.status === 'APPROVED' ? 'Pendiente Emisión' : (inv.fiscal_control_number || '00-004180')}</span>
                         </div>
                       </td>
 
@@ -731,7 +830,11 @@ export default function InvoicesAdminPage() {
 
                       {/* Referencia de Pago */}
                       <td className="px-5 py-3.5 font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                        {inv.payment_reference ? (
+                        {inv.status === 'APPROVED' ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-mono text-[10px] font-bold">
+                            Cotización Aprobada
+                          </span>
+                        ) : inv.payment_reference ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 font-mono text-[10px] font-bold">
                             <CheckCircle2 className="w-2.5 h-2.5" />
                             {inv.payment_reference}
@@ -754,6 +857,19 @@ export default function InvoicesAdminPage() {
                       {/* Acciones */}
                       <td className="px-5 py-3.5 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
+                          {/* Emitir Factura direct button for approved quotes */}
+                          {inv.status === 'APPROVED' && (
+                            <Button
+                              size="sm"
+                              onClick={(e) => handleEmitInvoice(inv, e)}
+                              className="h-8 px-2.5 rounded-lg text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer shadow-2xs"
+                              title="Emitir Factura Fiscal SENIAT"
+                            >
+                              <Receipt className="w-3.5 h-3.5" />
+                              <span>Emitir Factura</span>
+                            </Button>
+                          )}
+
                           {/* Ver Detalle */}
                           <Button
                             variant="outline"
@@ -766,16 +882,18 @@ export default function InvoicesAdminPage() {
                             <span className="hidden sm:inline">Detalle</span>
                           </Button>
 
-                          {/* Reimprimir */}
-                          <Button
-                            size="sm"
-                            onClick={() => handleOpenDetail(inv, 'print_preview')}
-                            className="h-8 px-2.5 rounded-lg text-xs gap-1 bg-[#E53935] hover:bg-[#b71c1c] text-white font-bold cursor-pointer shadow-2xs"
-                            title="Reimprimir Talonario Físico"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Reimprimir</span>
-                          </Button>
+                          {/* Reimprimir (only for emitted invoices) */}
+                          {inv.status !== 'APPROVED' && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenDetail(inv, 'print_preview')}
+                              className="h-8 px-2.5 rounded-lg text-xs gap-1 bg-[#E53935] hover:bg-[#b71c1c] text-white font-bold cursor-pointer shadow-2xs"
+                              title="Reimprimir Talonario Físico"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Reimprimir</span>
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
